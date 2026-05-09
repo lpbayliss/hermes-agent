@@ -3335,14 +3335,15 @@ class GatewayRunner:
             logger.warning("kanban notifier: kanban_db not importable; notifier disabled")
             return
 
-        TERMINAL_KINDS = ("completed", "blocked", "gave_up", "crashed", "timed_out")
+        VISIBLE_KINDS = (
+            "completed", "blocked", "gave_up", "crashed", "timed_out",
+            "heartbeat", "commented",
+        )
         # Terminal event kinds trigger automatic unsubscription — the task
         # is done, blocked, or in a retry-needed state that the human
-        # shouldn't keep pinging a stale chat for. Previously we only
-        # unsubbed when task.status in ('done', 'archived'), which left
-        # subscriptions on 'blocked' / 'gave_up' / 'crashed' / 'timed_out'
-        # tasks stranded forever.
-        TERMINAL_EVENT_KINDS = TERMINAL_KINDS
+        # shouldn't keep pinging a stale chat for. Progress events stay
+        # subscribed so future updates continue flowing.
+        TERMINAL_EVENT_KINDS = ("completed", "blocked", "gave_up", "crashed", "timed_out")
         # Per-subscription send-failure counter. Adapter.send raising
         # means the chat is dead (deleted, bot kicked, etc.) — after N
         # consecutive send failures the sub is dropped so we don't spin
@@ -3386,7 +3387,7 @@ class GatewayRunner:
                                     platform=sub["platform"],
                                     chat_id=sub["chat_id"],
                                     thread_id=sub.get("thread_id") or "",
-                                    kinds=TERMINAL_KINDS,
+                                    kinds=VISIBLE_KINDS,
                                 )
                                 if not events:
                                     continue
@@ -3473,6 +3474,19 @@ class GatewayRunner:
                             msg = (
                                 f"⏱ {tag}Kanban {sub['task_id']} timed out "
                                 f"(max_runtime={limit}s); will retry"
+                            )
+                        elif kind == "heartbeat":
+                            note = ""
+                            if ev.payload and ev.payload.get("note"):
+                                note = f": {str(ev.payload['note'])[:240]}"
+                            msg = f"💬 {tag}Kanban {sub['task_id']} update{note}"
+                        elif kind == "commented":
+                            excerpt = ""
+                            if ev.payload and ev.payload.get("body_excerpt"):
+                                excerpt = f"\n{str(ev.payload['body_excerpt'])[:240]}"
+                            msg = (
+                                f"💭 {tag}Kanban {sub['task_id']} comment added"
+                                f" — {title}{excerpt}"
                             )
                         else:
                             continue
