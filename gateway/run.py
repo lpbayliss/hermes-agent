@@ -7180,18 +7180,26 @@ class GatewayRunner:
                     chat_id = str(getattr(source, "chat_id", "") or "")
                     thread_id = str(getattr(source, "thread_id", "") or "")
                     user_id = str(getattr(source, "user_id", "") or "") or None
-                    # For Discord fleet/Kanban workflows, prefer the configured
-                    # Discord home channel when present. This lets a team keep
-                    # progress updates in a dedicated workspace channel even if
-                    # the create command was issued from another channel/thread.
+                    # Discord project routing: prefer the channel where the
+                    # task was created (project-channel workflow). If creation
+                    # happens from a DM/thread or another non-channel context,
+                    # fall back to the configured Discord home channel (usually
+                    # #workspace). Avoid carrying thread IDs by default because
+                    # Luke prefers channel-level project streams over threads.
                     if platform_str == "discord":
                         try:
                             home = self.config.get_home_channel(_Platform.DISCORD)
                         except Exception:
                             home = None
-                        if home and home.chat_id:
+                        source_chat_type = str(getattr(source, "chat_type", "") or "").lower()
+                        parent_chat_id = str(getattr(source, "parent_chat_id", "") or "")
+                        if source_chat_type == "thread" and parent_chat_id:
+                            chat_id = parent_chat_id
+                        elif source_chat_type in ("dm", "direct") and home and home.chat_id:
                             chat_id = str(home.chat_id)
-                            thread_id = str(home.thread_id or "")
+                        elif not chat_id and home and home.chat_id:
+                            chat_id = str(home.chat_id)
+                        thread_id = ""
                     if platform_str and chat_id:
                         def _sub():
                             from hermes_cli import kanban_db as _kb
